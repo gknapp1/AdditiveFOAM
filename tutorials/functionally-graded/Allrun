@@ -1,0 +1,51 @@
+#!/bin/sh
+cd ${0%/*} || exit 1    # Run from this directory
+
+# Source tutorial run functions
+. $WM_PROJECT_DIR/bin/tools/RunFunctions
+application=`getApplication`
+
+# Parse arguments
+withExaCA=false
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -withExaCA)
+      withExaCA=true
+      ;;
+  esac
+  shift
+done
+
+if [ "$withExaCA" = true ]; then
+    foamDictionary -entry functions -set "{#includeFunc ExaCA}" system/controlDict
+else
+    foamDictionary -entry functions -set "{}" system/controlDict
+fi
+
+#------------------------------------------------------------------------------
+# AdditiveFOAM
+runApplication blockMesh
+
+# Set $ADDITIVEFOAM_INST_DIR path: defaults to $WM_PROJECT_INST_DIR.
+projectDir="/home/cloud/AdditiveFOAM"
+path="$projectDir/applications/utilities/multiLayer"
+
+# Create scan paths from constant/createScanPathDict
+createScanPath
+
+$path/runLayers -nLayers 10 -nCellsPerLayer 2 -layerThickness 100e-6 --gradient
+$path/reconstructLayers
+
+#------------------------------------------------------------------------------
+# ExaCA (Version 2.0.1)
+if [ "$withExaCA" = true ]; then
+    for d in layer*; do
+        echo "x,y,z,tm,ts,cr" > "$d/ExaCA/time-temperature.csv"
+        cat "$d/ExaCA/data_"* >> "$d/ExaCA/time-temperature.csv"
+        rm -rf "$d/ExaCA/data_*"
+    done
+    
+    NPROCS="$(foamDictionary -expand -entry numberOfSubdomains -value system/decomposeParDict)"
+    mpirun -np $NPROCS ~/install/exaca/bin/ExaCA ExaCA/input.json
+fi
+#------------------------------------------------------------------------------

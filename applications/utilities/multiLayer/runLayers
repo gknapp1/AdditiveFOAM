@@ -41,6 +41,8 @@ options:
   -nLayers          number of layers
   -layerThickness   thickness of each layer (deposition)
   -nCellsPerLayer   number of desired cells in each deposited layer
+  --gradient        enable gradient for emulating functionally graded materials
+                    from A (powder fraction = 0) to B (powder fraction = 1)
   -help             print the usage
 * Run an additiveFoam simulation for sequential layers.
 * Currently, only a single repeating scan pattern is supported.
@@ -73,6 +75,10 @@ do
       nCellsPerLayer="$2"
       shift 2
       ;;
+   --gradient)
+      gradient=true
+      shift 1
+      ;;
    --)
       shift
       break
@@ -86,7 +92,7 @@ do
    esac
 done
 
-args_check $nLayers $layerThickness $nCellsPerLayer
+args_check $nLayers $layerThickness $nCellsPerLayer $gradient
 
 
 # 1. Find available scan path files
@@ -181,7 +187,12 @@ do
 
     thickness="$(foamDictionary -entry linearDirectionCoeffs/thickness -value system/extrudeMeshDict)"
     
-    # set powder height to the layer thickness 
+    # set powder height to the layer thickness
+    # set powder fraction based on gradient (1 for full, 0 -> 1 following layer/nLayers)
+    powder_fraction=1
+    if [ "$gradient" = true ]; then
+        powder_fraction=$(echo "scale=4; $layer / $nLayers" | bc)
+    fi 
     foamDictionary -entry regions -set \
     "(
         boxToCell
@@ -189,7 +200,7 @@ do
             box (-1 -1 -$layerThickness) (1 1 1);
             fieldValues
             (
-                volScalarFieldValue alpha.powder 1
+                volScalarFieldValue alpha.powder $powder_fraction
             );
         }
     )" system/setFieldsDict
